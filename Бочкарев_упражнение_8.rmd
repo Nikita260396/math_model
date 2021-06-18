@@ -1,0 +1,280 @@
+---
+title: "Упражнение 8"
+author: "Бочкачев Никита"
+date: "11 06 2021"
+output: html_document
+---
+
+# Задание:
+
+Построить две модели для прогноза на основе дерева решений:
+
+ -  для непрерывной зависимой переменной;
+ -  для категориальной зависимой переменной.
+
+Данные и переменные указаны в таблице с вариантами.
+Ядро генератора случайных чисел – номер варианта.
+
+Для каждой модели:
+
+ -  Указать настроечные параметры метода из своего варианта (например: количество узлов, количество предикторов, скорость обучения).
+ -  Подогнать модель на обучающей выборке (50% наблюдений). Рассчитать MSE на тестовой выборке.
+ -  Перестроить модель с помощью метода, указанного в варианте.
+ -  Сделать прогноз по модели с подобранными в п.3 параметрами на тестовой выборке, оценить его точность и построить график «прогноз-реализация».
+
+# Вариант 6
+
+Модели: бэггинг (количество предикторов).
+Данные: 'Wage {ISLR}'.
+
+```{r setup, include=FALSE}
+library('tree')              # деревья tree()
+library('GGally')            # матричный график разброса ggpairs()
+library('ISLR')              # набор данных Wage
+library('randomForest')      # случайный лес randomForest()
+library('gbm')               # бустинг gbm()
+library('class')
+data(Wage)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r }
+# Название столбцов переменных
+names(Wage)
+
+# Размерность данных
+dim(Wage)
+
+# Ядро генератора случайных чисел
+my.seed <- 2
+
+```
+
+# Модель 1 (для непрерывной зависимой переменной wage)
+
+```{r}
+# Избавляемся от region и logwage
+Wage <- Wage[, c(-6,-10) ]
+# ?Wage
+head(Wage)
+
+```
+
+```{r}
+# Матричные графики разброса переменных
+p <- ggpairs(Wage[, c(9, 1:4)])
+suppressMessages(print(p))
+p <- ggpairs(Wage[, c(9, 5:8)])
+suppressMessages(print(p))
+```
+
+```{r}
+# Обучающая выборка
+set.seed(my.seed)
+# Обучающая выборка - 50%
+train <- sample(1:nrow(Wage), nrow(Wage)/2)
+```
+
+Построим дерево регрессии для зависимой переменной wage
+
+```{r}
+# Обучаем модель
+tree.Wage <- tree(wage ~ ., Wage, subset = train)
+summary(tree.Wage)
+```
+
+```{r}
+# Визуализация
+plot(tree.Wage)
+text(tree.Wage, pretty = 0)
+
+```
+
+```{r}
+# Прогноз по модели 
+yhat <- predict(tree.Wage, newdata = Wage[-train, ])
+Wage.test <- Wage[-train, "wage"]
+
+# MSE на тестовой выборке
+mse.test <- mean((yhat - Wage.test)^2)
+names(mse.test)[length(mse.test)] <- 'Wage.regr.tree.all'
+mse.test
+
+# Точность прогноза на тестовой выборке
+acc.test <- sum(abs(yhat-Wage.test))/sum(Wage.test)
+names(acc.test)[length(acc.test)] <- 'Wage.regr.tree.all'
+acc.test
+```
+
+# Бэггинг (модель 1)
+
+```{r}
+# бэггинг с 8 предикторами
+set.seed(my.seed)
+bag.Wage <- randomForest(wage ~ ., data = Wage, subset = train, 
+                           mtry = 8, importance = TRUE)
+
+bag.Wage
+```
+
+```{r}
+# прогноз
+yhat.bag = predict(bag.Wage, newdata = Wage[-train, ])
+
+# MSE на тестовой
+mse.test <- c(mse.test, mean((yhat.bag - Wage.test)^2))
+names(mse.test)[length(mse.test)] <- 'Wage.bag.model.1.8'
+mse.test
+
+# Точность прогноза на тестовой выборке
+acc.test <- sum(abs(yhat.bag-Wage.test))/sum(Wage.test)
+names(acc.test)[length(acc.test)] <- 'Wage.regr.tree.model.1.8'
+acc.test
+```
+
+Ошибка на тестовой выборке равна 1292.93. Можно изменить число деревьев с помощью аргумента.
+
+```{r}
+# Бэггинг с 8 предикторами и 25 деревьями
+bag.Wage <- randomForest(wage ~ ., data = Wage, subset = train,
+                           mtry = 8, ntree = 25)
+
+# прогноз
+yhat.bag <- predict(bag.Wage, newdata = Wage[-train, ])
+
+# MSE на тестовой
+mse.test <- c(mse.test, mean((yhat.bag - Wage.test)^2))
+names(mse.test)[length(mse.test)] <- 'Wage.bag.model.1.8.25'
+mse.test
+
+# Точность прогноза на тестовой выборке
+acc.test <- c(acc.test, sum(abs(yhat.bag-Wage.test))/sum(Wage.test))
+names(acc.test)[length(acc.test)] <- 'Wage.regr.tree.model.1.8.25'
+acc.test
+```
+
+```{r}
+# График прогноз - реализация
+plot(yhat.bag, Wage.test)
+# линия идеального прогноза
+abline(0, 1)
+```
+Судя по полученным результатам наименьшая MSE наблюдается у модели с использованием бэггинга с 8 предикторами. Минимальная MSE на тестовой выборке равна 1292.93, точность прогноза составила 0.1.
+
+# Модель 2 (для категориальной зависимой переменной high.wage)
+
+Загрузим таблицу с данными и добавим к ней переменную high.wage - миль на галлон:
+
+1, если миля на галлон >= 128.68;
+0 - в противном случае.
+
+```{r}
+# Новая переменная
+high.wage <- ifelse(Wage$wage < 128.68, '0', '1')
+high.wage <- factor(high.wage, labels = c('yes', 'no'))
+
+Wage$high.wage <- high.wage 
+
+# Название столбцов переменных
+names(Wage)
+# Размерность данных
+dim(Wage)
+```
+
+```{r}
+# Матричные графики разброса переменных
+
+p <- ggpairs(Wage[, c(10, 1:4)], aes(color = high.wage))
+suppressMessages(print(p))
+
+p <- ggpairs(Wage[, c(10, 5:9)], aes(color = high.wage))
+suppressMessages(print(p))
+```
+
+Судя по графикам, класс 0 превосходит по размеру класс 1 по переменной high.wage приблизительно в 3 раза. 
+
+Построим дерево для категориального отклика high.wage, отбросив непрерывный отклик wage.
+
+```{r}
+# Модель бинарного  дерева
+tree.Wage <- tree(high.wage ~ . -wage, Wage)
+summary(tree.Wage)
+
+# График результата
+plot(tree.Wage)                # Ветви
+text(tree.Wage, pretty = 0)    # Подписи
+```
+Теперь построим дерево на обучающей выборке и оценим ошибку на тестовой.
+
+```{r}
+# Тестовая выборка
+Wage.test <- Wage[-train,]
+high.wage.test <- high.wage[-train]
+
+# Строим дерево на обучающей выборке
+tree.Wage <- tree(high.wage ~ . -wage, Wage, subset = train)
+
+# Делаем прогноз
+tree.pred <- predict(tree.Wage, Wage.test, type = "class")
+
+# Матрица неточностей
+tbl <- table(tree.pred, high.wage.test)
+tbl
+# ACC на тестовой
+acc.test.2 <- sum(diag(tbl))/sum(tbl)
+names(acc.test.2)[length(acc.test.2)] <- 'Wage.class.tree.all.model.2'
+acc.test.2
+```
+Обобщённая характеристика точности: доля верных прогнозов: 0.79.
+
+
+# Бэггинг (модель 2)
+
+```{r}
+set.seed(my.seed)
+bag.Wage <- randomForest(high.wage ~ . -wage, data = Wage, subset = train, 
+                           mtry = 8, importance = TRUE)
+# График и таблица относительной важности переменных
+summary(bag.Wage)
+```
+
+```{r}
+# прогноз
+yhat.bag <-  predict(bag.Wage, newdata = Wage[-train, ])
+
+# Матрица неточностей
+tbl <- table(yhat.bag, high.wage.test)
+tbl
+
+# Точность прогноза на тестовой выборке
+acc.test.2 <- c(acc.test.2, sum(diag(tbl))/sum(tbl))
+names(acc.test.2)[length(acc.test.2)] <- 'Wage.class.tree.model.2.8'
+acc.test.2
+```
+
+```{r}
+# бэггинг с 8 предикторами и 25 деревьями
+bag.Wage <- randomForest(high.wage ~ .-wage, data = Wage, subset = train,
+                           mtry = 8, ntree = 25)
+
+# прогноз
+yhat.bag <- predict(bag.Wage, newdata = Wage[-train, ])
+
+# Матрица неточностей
+tbl <- table(yhat.bag, high.wage.test)
+tbl
+# Точность прогноза на тестовой выборке
+acc.test.2 <- c(acc.test.2, sum(diag(tbl))/sum(tbl))
+names(acc.test.2)[length(acc.test.2)] <- 'Wage.class.tree.model.2.8.25'
+acc.test.2
+```
+
+```{r}
+# График "прогноз - реализация"
+plot(yhat.bag, Wage$high.wage[-train])
+```
+
+
+
+
